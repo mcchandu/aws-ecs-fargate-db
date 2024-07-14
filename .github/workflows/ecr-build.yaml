@@ -1,0 +1,73 @@
+name: Build and Publish Docker Image
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+
+    env:
+      AWS_REGION: us-east-1
+      ECR_REGISTRY: ${{ secrets.ENV_AWS_ACCOUNT }}.dkr.ecr.us-east-1.amazonaws.com
+      PARAMETER_STORE_PATH: /citibot/${{ vars.IMAGE_REPO_NAME }}/image
+
+    steps:
+      - name: Check Out Repo
+        uses: actions/checkout@v2
+
+      - name: Set Versions
+        uses: actions/github-script@v4
+        id: set_version
+        with:
+          script: |
+            const tag = context.ref.substring(10)
+            const no_v = tag.replace('v', '')
+            const dash_index = no_v.lastIndexOf('-')
+            const no_dash = (dash_index > -1) ?  no_v.substring(0, dash_index) : no_v
+            core.setOutput('tag', tag)
+            core.setOutput('no-v', no_v)
+            core.setOutput('no-dash', no_dash)
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.ENV_AWS_ACCOUNT }}:role/${{ secrets.ASSUME_ROLE_NAME }}
+          aws-region: us-east-1
+          role-session-name: ${{ secrets.ASSUME_ROLE_NAME }}
+          audience: sts.amazonaws.com
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Generate timestamp
+        id: vars
+        run: echo "TIMESTAMP=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_ENV
+
+      - name: Build Docker Image
+        run: |
+          docker build --build-arg DATABASE_CONNECTION_URI=${{ vars.DATABASE_CONNECTION_URI }} --build-arg REDIS_HOST=${{ vars.REDIS_HOST }} -t ${{ secrets.IMAGE_REPO_NAME }}:${{ steps.set_version.outputs.no-dash }} -f ./dev-ops/docker/Dockerfile .
+
+      - name: Log in to Amazon ECR
+        run: aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
+
+      - name: Docker push to ECR
+        run: |
+          docker tag ${{ secrets.IMAGE_REPO_NAME }}:${{ steps.set_version.outputs.no-dash }} ${{ env.ECR_REGISTRY }}/${{ secrets.IMAGE_REPO_NAME }}:${{ steps.set_version.outputs.no-dash }}
+          docker push ${{ env.ECR_REGISTRY }}/${{ secrets.IMAGE_REPO_NAME }}:${{ steps.set_version.outputs.no-dash }}
+          docker tag ${{ secrets.IMAGE_REPO_NAME }}:${{ steps.set_version.outputs.no-dash }} ${{ env.ECR_REGISTRY }}/${{ secrets.IMAGE_REPO_NAME }}:latest
+          docker push ${{ env.ECR_REGISTRY }}/${{ secrets.IMAGE_REPO_NAME }}:latest
+
+      - name: Update Parameter Store
+        run: |
+          aws ssm put-parameter --name ${{ env.PARAMETER_STORE_PATH }} --value ${{ env.ECR_REGISTRY }}/${{ secrets.IMAGE_REPO_NAME }}:${{ steps.set_version.outputs.no-dash }} --type String --overwrite --region ${{ env.AWS_REGION }}
