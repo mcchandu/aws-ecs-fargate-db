@@ -2,9 +2,8 @@ name: Build and Publish Docker Image
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
-
+    branches:
+      - db-test
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,8 +15,8 @@ jobs:
 
     env:
       AWS_REGION: us-east-1
-      ECR_REGISTRY: ${{ secrets.ENV_AWS_ACCOUNT }}.dkr.ecr.us-east-1.amazonaws.com
-      PARAMETER_STORE_PATH: /citibot/${{ vars.IMAGE_REPO_NAME }}/image
+      ECR_REGISTRY: 992382551538.dkr.ecr.us-east-1.amazonaws.com
+      IMAGE_REPO_NAME: demo-falkor-translater-v2
 
     steps:
       - name: Check Out Repo
