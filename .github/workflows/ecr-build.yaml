@@ -18,7 +18,7 @@ jobs:
       AWS_REGION: us-east-1
       ECR_REGISTRY: 992382551538.dkr.ecr.us-east-1.amazonaws.com
       IMAGE_REPO_NAME: demo-falkor-translater-v2
-      PARAMETER_STORE_PATH: /citibot/${{ env.IMAGE_REPO_NAME }}/image
+      PARAMETER_STORE_PATH: /citibot/demo-falkor-translater-v2/image
 
     steps:
       - name: Check Out Repo
