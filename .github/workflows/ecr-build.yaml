@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - db-test
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,6 +18,7 @@ jobs:
       AWS_REGION: us-east-1
       ECR_REGISTRY: 992382551538.dkr.ecr.us-east-1.amazonaws.com
       IMAGE_REPO_NAME: demo-falkor-translater-v2
+      PARAMETER_STORE_PATH: /citibot/${{ env.IMAGE_REPO_NAME }}/image
 
     steps:
       - name: Check Out Repo
@@ -30,7 +32,7 @@ jobs:
             const tag = context.ref.substring(10)
             const no_v = tag.replace('v', '')
             const dash_index = no_v.lastIndexOf('-')
-            const no_dash = (dash_index > -1) ?  no_v.substring(0, dash_index) : no_v
+            const no_dash = (dash_index > -1) ? no_v.substring(0, dash_index) : no_v
             core.setOutput('tag', tag)
             core.setOutput('no-v', no_v)
             core.setOutput('no-dash', no_dash)
@@ -55,18 +57,19 @@ jobs:
 
       - name: Build Docker Image
         run: |
-          docker build --build-arg DATABASE_CONNECTION_URI=${{ vars.DATABASE_CONNECTION_URI }} --build-arg REDIS_HOST=${{ vars.REDIS_HOST }} -t ${{ secrets.IMAGE_REPO_NAME }}:${{ steps.set_version.outputs.no-dash }} -f ./dev-ops/docker/Dockerfile .
+          IMAGE_TAG=${{ env.ECR_REGISTRY }}/${{ env.IMAGE_REPO_NAME }}:${{ steps.set_version.outputs.no-dash }}
+          docker build --build-arg DATABASE_CONNECTION_URI=${{ vars.DATABASE_CONNECTION_URI }} --build-arg REDIS_HOST=${{ vars.REDIS_HOST }} -t $IMAGE_TAG -f ./dev-ops/docker/Dockerfile .
 
       - name: Log in to Amazon ECR
         run: aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
 
       - name: Docker push to ECR
         run: |
-          docker tag ${{ secrets.IMAGE_REPO_NAME }}:${{ steps.set_version.outputs.no-dash }} ${{ env.ECR_REGISTRY }}/${{ secrets.IMAGE_REPO_NAME }}:${{ steps.set_version.outputs.no-dash }}
-          docker push ${{ env.ECR_REGISTRY }}/${{ secrets.IMAGE_REPO_NAME }}:${{ steps.set_version.outputs.no-dash }}
-          docker tag ${{ secrets.IMAGE_REPO_NAME }}:${{ steps.set_version.outputs.no-dash }} ${{ env.ECR_REGISTRY }}/${{ secrets.IMAGE_REPO_NAME }}:latest
-          docker push ${{ env.ECR_REGISTRY }}/${{ secrets.IMAGE_REPO_NAME }}:latest
+          IMAGE_TAG=${{ env.ECR_REGISTRY }}/${{ env.IMAGE_REPO_NAME }}:${{ steps.set_version.outputs.no-dash }}
+          docker tag $IMAGE_TAG ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_REPO_NAME }}:latest
+          docker push $IMAGE_TAG
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_REPO_NAME }}:latest
 
       - name: Update Parameter Store
         run: |
-          aws ssm put-parameter --name ${{ env.PARAMETER_STORE_PATH }} --value ${{ env.ECR_REGISTRY }}/${{ secrets.IMAGE_REPO_NAME }}:${{ steps.set_version.outputs.no-dash }} --type String --overwrite --region ${{ env.AWS_REGION }}
+          aws ssm put-parameter --name ${{ env.PARAMETER_STORE_PATH }} --value $IMAGE_TAG --type String --overwrite --region ${{ env.AWS_REGION }}
